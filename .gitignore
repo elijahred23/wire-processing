@@ -2,6 +2,8 @@
 [Bb]in/
 [Oo]bj/
 out/
+publish/
+artifacts/
 
 # User-specific files
 *.user
@@ -26,6 +28,13 @@ coverage/
 *.nupkg
 *.snupkg
 packages/
+
+# ASP.NET / MVC generated assets
+wwwroot/dist/
+wwwroot/build/
+bundleconfig.json.bindings
+*.Publish.xml
+*.pubxml.user
 
 # Rider
 _ReSharper*/

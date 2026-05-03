@@ -1,0 +1,19 @@
+@model WireRequestViewModel
+<h2>Wire Transfer</h2>
+
+<form method="post" asp-action="Submit">
+    <input asp-for="ClientReferenceId" placeholder="Client Reference Id" />
+    <br />
+    <input asp-for="Amount" placeholder="Amount" />
+    <br />
+
+    <input asp-for="CurrencyCode" value="USD" />
+    <br />
+
+    <button type="submit">Submit Wire</button>
+</form>
+
+@if (ViewBag.Message != null)
+{
+    <p>@ViewBag.Message</p>
+}
