@@ -3,6 +3,7 @@ using RabbitMQ.Client.Events;
 using Microsoft.Data.SqlClient;
 using System.Xml.Linq;
 using System.Text;
+using System.Threading.Channels;
 
 public class Worker : BackgroundService
 {
@@ -38,26 +39,86 @@ public class Worker : BackgroundService
             exclusive: false,
             autoDelete: false);
 
+        _channel.QueueDeclare(
+            queue: "wire.dlq.queue",
+            durable: true,
+            exclusive: false,
+            autoDelete: false
+        );
+
         var consumer = new EventingBasicConsumer(_channel);
 
         consumer.Received += async (model, ea) =>
         {
             var xml = Encoding.UTF8.GetString(ea.Body.ToArray());
             var correlationId = Guid.NewGuid().ToString();
+            var retryCount = 0;
 
-            _logger.LogInformation("📩 Wire received");
+            if(ea.BasicProperties?.Headers != null && 
+            ea.BasicProperties.Headers.ContainsKey("x-retry"))
+            {
+                retryCount = Convert.ToInt32(ea.BasicProperties.Headers["x-retry"]);
+            }
 
-            var parsed = ParseIso(xml);
+            try
+            {
+                _logger.LogInformation($"Message received (Retry={retryCount})");
 
-            await ProcessTransaction(parsed, xml, correlationId);
+
+                var parsed = ParseIso(xml);
+
+                await ProcessTransaction(parsed, xml, correlationId);
+                _channel.BasicAck(ea.DeliveryTag, false);
+            } catch (Exception ex)
+            {
+                _logger.LogError(ex, "Proccessing failed");
+
+
+                HandleFailure(_channel, ea, retryCount);
+            }
+
         };
 
         _channel.BasicConsume(
             queue: "wire.inbound.queue",
-            autoAck: true,
+            autoAck: false,
             consumer: consumer);
 
         return Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+    private void HandleFailure(IModel channel, BasicDeliverEventArgs ea, int retryCount)
+    {
+        const int maxRetries = 3;
+
+        if(retryCount < maxRetries)
+        {
+            var props = channel.CreateBasicProperties();
+
+            props.Headers = ea.BasicProperties.Headers ?? new Dictionary<string, object>();
+
+
+            props.Headers["x-retry"] = retryCount + 1;
+
+            _logger.LogWarning($"Retrying message (attempt {retryCount + 1})");
+
+            channel.BasicPublish(
+                exchange: "",
+                routingKey: "wire.inbound.queue",
+                basicProperties: props,
+                body: ea.Body.ToArray());
+        }
+        else
+        {
+            _logger.LogError("Sending to DLQ");
+
+            channel.BasicPublish(
+                exchange: "",
+                routingKey: "wire.dlq.queue",
+                basicProperties: channel.CreateBasicProperties(),
+                body: ea.Body.ToArray()
+            );
+        }
+        channel.BasicAck(ea.DeliveryTag, false);
     }
 
     private (string TxId, decimal Amount, string Currency, bool IsValid) ParseIso(string xml)
