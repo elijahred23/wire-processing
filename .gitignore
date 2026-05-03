@@ -1,0 +1,43 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+out/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+
+# IDE/editor settings
+.vs/
+.vscode/
+.idea/
+
+# Test and coverage artifacts
+TestResults/
+*.coverage
+*.coveragexml
+coverage/
+
+# Logs
+*.log
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# Rider
+_ReSharper*/
+*.DotSettings.user
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
+# Keep template, ignore local secrets override if created
+appsettings.Local.json
