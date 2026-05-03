@@ -95,6 +95,12 @@ public class Worker : BackgroundService
         using var conn = new SqlConnection(connStr);
         await conn.OpenAsync();
 
+        if(await IsDuplicateAsync(conn, msg.TxId))
+        {
+            _logger.LogWarning($"Duplicate wire ignored: {msg.TxId}");
+            return;
+        }
+
         var cmd1 = new SqlCommand(@"
 IF EXISTS (SELECT 1 FROM WireTransactions WHERE ClientReferenceId = @TxId)
     UPDATE WireTransactions
@@ -124,6 +130,9 @@ WHERE ClientReferenceId = @TxId", conn);
         cmdGetId.Parameters.AddWithValue("@TxId", msg.TxId);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
+
+
+        await SaveIdempotencyKey(conn, msg.TxId, wireId);
 
         var cmdIso = new SqlCommand(@"
 INSERT INTO IsoMessages
@@ -207,5 +216,29 @@ VALUES
         _logger.LogInformation($"Sent pacs.002 -> {txId} ({status})");
 
 
+    }
+    private async Task<bool> IsDuplicateAsync(SqlConnection conn, string txId)
+    {
+        var cmd = new SqlCommand(@"
+            SELECT COUNT(1)
+            FROM IdempotencyKeys
+            WHERE IdempotencyKey = @TxId", conn);
+
+        cmd.Parameters.AddWithValue("@TxId", txId);
+
+        var count = (int)await cmd.ExecuteScalarAsync();
+
+        return count > 0;
+    }
+    private async Task SaveIdempotencyKey(SqlConnection conn, string txId, Guid wireTransactionId)
+    {
+        var cmd = new SqlCommand(@"
+            INSERT INTO IdempotencyKeys (IdempotencyKey, WireTransactionId, ExpiresAt)
+            VALUES (@TxId, @WireId, DATEADD(HOUR, 24, SYSUTCDATETIME()))", conn);
+
+        cmd.Parameters.AddWithValue("@TxId", txId);
+        cmd.Parameters.AddWithValue("@WireId", wireTransactionId);
+
+        await cmd.ExecuteNonQueryAsync();
     }
 }

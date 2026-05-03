@@ -1,0 +1,4 @@
+<Document>
+  <TxId>TX999</TxId>
+  <IntrBkSttlmAmt>2500</IntrBkSttlmAmt>
+</Document>
