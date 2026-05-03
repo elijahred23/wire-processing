@@ -1,0 +1,36 @@
+@model List<WireDashboardItem>
+
+<h2>Wire Dashboard</h2>
+
+
+<table border="1" cellpadding="5">
+<thead>
+    <tr>
+        <th>TxId</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Direction</th>
+        <th>Created</th>
+        <th>Last Msg Type</th>
+        <th>Msg Direction</th>
+        <th>CorrelationId</th>
+    </tr>
+</thead>
+<tbody>
+@foreach (var item in Model)
+{
+    <tr>
+    
+    <td>@item.ClientReferenceId</td>
+    <td>@item.Amount @item.CurrencyCode</td>
+    <td>@item.Status</td>
+    <td>@item.Direction</td>
+    <td>@item.CreatedAt</td>
+    <td>@item.LastMessageType</td>
+    <td>@item.LastDirection</td>
+    <td>@item.CorrelationId</td>
+    </tr>
+
+}
+</tbody>
+</table>

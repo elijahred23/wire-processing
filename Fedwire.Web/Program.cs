@@ -1,7 +1,11 @@
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddDbContext<WireDbContext>( options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("WireDb")));
 
 var app = builder.Build();
 
