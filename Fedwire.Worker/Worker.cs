@@ -60,9 +60,6 @@ public class Worker : BackgroundService
         return Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    // -------------------------------
-    // ISO PARSING
-    // -------------------------------
     private (string TxId, decimal Amount, string Currency, bool IsValid) ParseIso(string xml)
     {
         try
@@ -86,9 +83,6 @@ public class Worker : BackgroundService
         }
     }
 
-    // -------------------------------
-    // MAIN PROCESSING PIPELINE
-    // -------------------------------
     private async Task ProcessTransaction(
         (string TxId, decimal Amount, string Currency, bool IsValid) msg,
         string xml,
@@ -101,9 +95,6 @@ public class Worker : BackgroundService
         using var conn = new SqlConnection(connStr);
         await conn.OpenAsync();
 
-        // -------------------------------
-        // 1. UPSERT WIRE TRANSACTION
-        // -------------------------------
         var cmd1 = new SqlCommand(@"
 IF EXISTS (SELECT 1 FROM WireTransactions WHERE ClientReferenceId = @TxId)
     UPDATE WireTransactions
@@ -125,9 +116,6 @@ ELSE
 
         await cmd1.ExecuteNonQueryAsync();
 
-        // -------------------------------
-        // 2. GET WireTransactionId
-        // -------------------------------
         var cmdGetId = new SqlCommand(@"
 SELECT WireTransactionId 
 FROM WireTransactions 
@@ -137,9 +125,6 @@ WHERE ClientReferenceId = @TxId", conn);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
 
-        // -------------------------------
-        // 3. INSERT ISO MESSAGE (AUDIT)
-        // -------------------------------
         var cmdIso = new SqlCommand(@"
 INSERT INTO IsoMessages
 (WireTransactionId, MessageType, Direction, CorrelationId, MessageXml)
@@ -152,9 +137,6 @@ VALUES
 
         await cmdIso.ExecuteNonQueryAsync();
 
-        // -------------------------------
-        // 4. STATUS HISTORY
-        // -------------------------------
         var cmdHist = new SqlCommand(@"
 INSERT INTO WireStatusHistory
 (WireTransactionId, OldStatus, NewStatus, ChangedBy)
@@ -166,9 +148,6 @@ VALUES
 
         await cmdHist.ExecuteNonQueryAsync();
 
-        // -------------------------------
-        // 5. PROCESSING LOG
-        // -------------------------------
         var cmdLog = new SqlCommand(@"
 INSERT INTO ProcessingLogs
 (WireTransactionId, StepName, Status, Details)
@@ -181,9 +160,52 @@ VALUES
 
         await cmdLog.ExecuteNonQueryAsync();
 
-        // -------------------------------
-        // 6. RESPONSE (FUTURE STEP)
-        // -------------------------------
+        PublishResponse(
+            _channel!,
+            msg.TxId,
+            status,
+            msg.Amount,
+            correlationId
+        );
+        
         _logger.LogInformation($"Processed wire {msg.TxId} → {status}");
+    }
+
+    private void PublishResponse(IModel channel, string txId, string status, decimal amount, string correlationId)
+    {
+        var responseXml = $@"
+        <Document>
+            <FIToFIPmtStsRpt>
+                <GrpHdr>
+                    <MsgId>{correlationId}</MsgId>
+                </GrpHdr>
+                <TxInfAndSts>
+                    <TxId>{txId}</TxId>
+                    <TxSts>{status}</TxSts>
+                    <Amt>{amount}</Amt>
+                </TxInfAndSts>
+            </FIToFIPmtStsRpt>
+        </Document>";
+
+        var body = Encoding.UTF8.GetBytes(responseXml);
+
+        var props = channel.CreateBasicProperties();
+
+        props.CorrelationId = correlationId;
+
+        props.Headers ??= new Dictionary<string, object>();
+
+        props.Headers["message_type"] = "pacs.002";
+
+        channel.BasicPublish(
+            exchange: "wire.exchange",
+            routingKey: "wire.response",
+            basicProperties: props,
+            body: body
+        );
+
+        _logger.LogInformation($"Sent pacs.002 -> {txId} ({status})");
+
+
     }
 }
