@@ -151,6 +151,7 @@ public class Worker : BackgroundService
         string xml,
         string correlationId)
     {
+
         var status = msg.IsValid ? "ACSC" : "RJCT";
 
         var connStr = _config.GetConnectionString("WireDb");
@@ -194,6 +195,29 @@ WHERE ClientReferenceId = @TxId", conn);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
 
+        var validator = new Iso20022Validator();
+
+        var validation = validator.Validate(xml);
+
+        if (!validation.IsValid)
+        {
+            
+            _logger.LogWarning("ISO validation failed");
+
+            foreach (var err in validation.Errors)
+                _logger.LogWarning(err);
+
+            await MarkRejected(conn, wireId, string.Join("; ", validation.Errors));
+
+            PublishResponse(
+                _channel,
+                msg.TxId,
+                "RJCT",
+                msg.Amount,
+                correlationId,
+                "ISO Validation Failed"
+            );
+        }
         var accountNumber = msg.AccountNumber;
         Console.WriteLine($"Account Number: {accountNumber}");
         var balance = await GetAccountBalance(conn, accountNumber);
