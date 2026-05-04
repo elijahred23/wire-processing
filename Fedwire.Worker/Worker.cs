@@ -192,6 +192,37 @@ WHERE ClientReferenceId = @TxId", conn);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
 
+        var accountNumber = "123456789";
+
+        var balance = await GetAccountBalance(conn, accountNumber);
+
+        if(balance == null)
+        {
+            _logger.LogError("Account not found");
+
+            await MarkRejected(conn, wireId, "Account not found");
+
+            PublishResponse(
+                _channel,
+                msg.TxId,
+                "RJCT",
+                msg.Amount,
+                correlationId,
+                "Account not found"
+            );
+
+            return;
+        }
+
+
+        var debited = await TryDebitAccount(conn, accountNumber, msg.Amount);
+
+        if(!debited)
+        {
+            _logger.LogWarning("Insufficient funds");
+            await MarkRejected(conn, wireId, "Insufficient funds");
+
+        }
 
         await SaveIdempotencyKey(conn, msg.TxId, wireId);
 
@@ -230,6 +261,8 @@ VALUES
 
         await cmdLog.ExecuteNonQueryAsync();
 
+        await MarkSettled(conn, wireId);
+
         PublishResponse(
             _channel!,
             msg.TxId,
@@ -241,21 +274,41 @@ VALUES
         _logger.LogInformation($"Processed wire {msg.TxId} → {status}");
     }
 
-    private void PublishResponse(IModel channel, string txId, string status, decimal amount, string correlationId)
+    private void PublishResponse(
+        IModel channel,
+        string txId,
+        string status,
+        decimal amount,
+        string correlationId,
+        string? reason = null)
     {
+        var timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        var statusReasonXml = status == "RJCT" && !string.IsNullOrEmpty(reason)
+            ? $@"
+            <StsRsnInf>
+                <Rsn>
+                    <Cd>ERR</Cd>
+                </Rsn>
+                <AddtlInf>{reason}</AddtlInf>
+            </StsRsnInf>"
+            : "";
+
         var responseXml = $@"
-        <Document>
-            <FIToFIPmtStsRpt>
-                <GrpHdr>
-                    <MsgId>{correlationId}</MsgId>
-                </GrpHdr>
-                <TxInfAndSts>
-                    <TxId>{txId}</TxId>
-                    <TxSts>{status}</TxSts>
-                    <Amt>{amount}</Amt>
-                </TxInfAndSts>
-            </FIToFIPmtStsRpt>
-        </Document>";
+    <Document>
+        <FIToFIPmtStsRpt>
+            <GrpHdr>
+                <MsgId>{correlationId}</MsgId>
+                <CreDtTm>{timestamp}</CreDtTm>
+            </GrpHdr>
+            <TxInfAndSts>
+                <TxId>{txId}</TxId>
+                <TxSts>{status}</TxSts>
+                <IntrBkSttlmAmt Ccy=""USD"">{amount:F2}</IntrBkSttlmAmt>
+                {statusReasonXml}
+            </TxInfAndSts>
+        </FIToFIPmtStsRpt>
+    </Document>";
 
         var body = Encoding.UTF8.GetBytes(responseXml);
 
@@ -264,7 +317,6 @@ VALUES
         props.CorrelationId = correlationId;
 
         props.Headers ??= new Dictionary<string, object>();
-
         props.Headers["message_type"] = "pacs.002";
 
         channel.BasicPublish(
@@ -274,9 +326,7 @@ VALUES
             body: body
         );
 
-        _logger.LogInformation($"Sent pacs.002 -> {txId} ({status})");
-
-
+        _logger.LogInformation($"📤 pacs.002 sent → {txId} ({status})");
     }
     private async Task<bool> IsDuplicateAsync(SqlConnection conn, string txId)
     {
@@ -299,6 +349,57 @@ VALUES
 
         cmd.Parameters.AddWithValue("@TxId", txId);
         cmd.Parameters.AddWithValue("@WireId", wireTransactionId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+    private async Task<decimal?> GetAccountBalance(SqlConnection conn, string accountNumber)
+    {
+        var cmd = new SqlCommand(@"
+            SELECT Balance
+            FROM Accounts
+            WHERE AccountNumber = @AccountNumber", conn);
+
+        cmd.Parameters.AddWithValue("@AccountNumber", accountNumber);
+
+
+        var result = await cmd.ExecuteScalarAsync();
+
+        return result == null ? null : (decimal) result;
+    }
+    private async Task<bool> TryDebitAccount(SqlConnection conn, string accountNumber, decimal amount)
+    {
+        var cmd = new SqlCommand(@"
+            UPDATE Accounts
+            SET Balance = Balance - @Amount
+            WHERE AccountNumber = @AccountNumber
+            AND BALANCE >= @Amount", conn);
+
+        cmd.Parameters.AddWithValue("@Amount", amount);
+        cmd.Parameters.AddWithValue("@AccountNumber", accountNumber);
+
+        var rows = await cmd.ExecuteNonQueryAsync();
+
+        return rows > 0;
+    }
+    public async Task MarkRejected(SqlConnection conn, Guid wireId, string reason)
+    {
+        var cmd = new SqlCommand(@"
+            UPDATE WireTransactions
+            SET Status = 'RJCT', RejectedAt = SYSUTCDATETIME()
+            WHERE WireTransactionId = @Id", conn);
+        
+        cmd.Parameters.AddWithValue("@Id", wireId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+    private async Task MarkSettled(SqlConnection conn, Guid wireId)
+    {
+        var cmd = new SqlCommand(@"
+            UPDATE WireTransactions
+            SET Status = 'ACSC', SettledAt = SYSUTCDATETIME()
+            WHERE WireTransactionId = @Id", conn);
+
+        cmd.Parameters.AddWithValue("@Id", wireId);
 
         await cmd.ExecuteNonQueryAsync();
     }
