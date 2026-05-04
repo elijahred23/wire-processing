@@ -1,0 +1,25 @@
+@model List<Account>
+<h2>Accounts</h2>
+
+<a href="/Accounts/Create">+ Create Account</a>
+
+<table border="1">
+    <tr>
+        <th>Account</th>
+        <th>Routing</th>
+        <th>Balance</th>
+        <th>Currency</th>
+        <th>Created</th>
+    </tr>
+
+@foreach (var a in Model)
+{
+<tr>
+    <td>@a.AccountNumber</td>
+    <td>@a.RoutingNumber</td>
+    <td>@a.Balance</td>
+    <td>@a.Currency</td>
+    <td>@a.CreatedAt</td>
+</tr>
+}
+</table>

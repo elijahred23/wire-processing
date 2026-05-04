@@ -1,0 +1,14 @@
+@model CreateAccountViewModel
+<h2>Create Account</h2>
+
+<form method="post">
+<input asp-for="AccountNumber" placeholder="Account Number" />
+</br>
+<input asp-for="RoutingNumber" placeholder="Routing Number" />
+</br>
+<input asp-for="Balance" placeholder="Initial Balance" />
+</br>
+<input asp-for="Currency" placeholder="Currency" />
+</br>
+<button type="submit">Create Account</button>
+</form>
