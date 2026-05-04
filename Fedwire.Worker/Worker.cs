@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using System.Xml.Linq;
 using System.Text;
 using System.Threading.Channels;
+using System.Security;
 
 public class Worker : BackgroundService
 {
@@ -121,7 +122,7 @@ public class Worker : BackgroundService
         channel.BasicAck(ea.DeliveryTag, false);
     }
 
-    private (string TxId, decimal Amount, string Currency, bool IsValid) ParseIso(string xml)
+    private (string TxId, decimal Amount, string Currency, string AccountNumber, bool IsValid) ParseIso(string xml)
     {
         try
         {
@@ -129,6 +130,7 @@ public class Worker : BackgroundService
 
             var txId = doc.Descendants("TxId").FirstOrDefault()?.Value;
             var amountStr = doc.Descendants("IntrBkSttlmAmt").FirstOrDefault()?.Value;
+            var accountNumber = doc.Descendants("DbtrAcct").FirstOrDefault()?.Value;
 
             var amount = decimal.TryParse(amountStr, out var a) ? a : 0;
 
@@ -136,16 +138,16 @@ public class Worker : BackgroundService
                 !string.IsNullOrWhiteSpace(txId) &&
                 amount > 0;
 
-            return (txId ?? Guid.NewGuid().ToString(), amount, "USD", isValid);
+            return (txId ?? Guid.NewGuid().ToString(), amount, "USD", accountNumber, isValid);
         }
         catch
         {
-            return (Guid.NewGuid().ToString(), 0, "USD", false);
+            return (Guid.NewGuid().ToString(), 0, "USD", "0", false);
         }
     }
 
     private async Task ProcessTransaction(
-        (string TxId, decimal Amount, string Currency, bool IsValid) msg,
+        (string TxId, decimal Amount, string Currency, string AccountNumber,  bool IsValid) msg,
         string xml,
         string correlationId)
     {
@@ -192,8 +194,8 @@ WHERE ClientReferenceId = @TxId", conn);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
 
-        var accountNumber = "123456789";
-
+        var accountNumber = msg.AccountNumber;
+        Console.WriteLine($"Account Number: {accountNumber}");
         var balance = await GetAccountBalance(conn, accountNumber);
 
         if(balance == null)
@@ -358,6 +360,8 @@ VALUES
             SELECT Balance
             FROM Accounts
             WHERE AccountNumber = @AccountNumber", conn);
+
+        Console.WriteLine($"Account Number: {accountNumber}");
 
         cmd.Parameters.AddWithValue("@AccountNumber", accountNumber);
 

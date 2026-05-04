@@ -3,16 +3,24 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Mvc;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
 
 public class WireController: Controller
 {
-    public IActionResult Index()
+    private WireDbContext _context;
+    public WireController(WireDbContext context)
     {
+        _context = context;
+    }
+    public async Task<IActionResult> Index()
+    {
+        ViewBag.Accounts = await _context.Accounts.ToListAsync();
         return View();
     }
 
     [HttpPost]
-    public IActionResult Submit(WireRequestViewModel model)
+    public async Task<IActionResult> Submit(WireRequestViewModel model)
     {
         var factory = new ConnectionFactory
         {
@@ -28,7 +36,9 @@ public class WireController: Controller
         var xml = $@"
         <Document>
             <TxId>{model.ClientReferenceId}</TxId>
+            <DbtrAcct>{model.DebtorAccountNumber}</DbtrAcct>
             <IntrBkSttlmAmt>{model.Amount}</IntrBkSttlmAmt>
+            <Ccy>{model.CurrencyCode}</Ccy>
         </Document>
         ";
 
@@ -47,6 +57,7 @@ public class WireController: Controller
         );
 
         ViewBag.Mesasge = "Wire submitted successfully";
+        ViewBag.Accounts = await _context.Accounts.ToListAsync();
 
         return View("Index");
     }

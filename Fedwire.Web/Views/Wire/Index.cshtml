@@ -10,6 +10,15 @@
     <input asp-for="CurrencyCode" value="USD" />
     <br />
 
+    <select asp-for="DebtorAccountNumber">
+    @foreach (var account in ViewBag.Accounts)
+    {
+        <option value="@account.AccountNumber">
+            @account.AccountNumber (@account.Balance)
+        </option>
+    }
+    </select>
+
     <button type="submit">Submit Wire</button>
 </form>
 
