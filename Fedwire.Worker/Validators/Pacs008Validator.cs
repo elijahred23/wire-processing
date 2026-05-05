@@ -91,7 +91,9 @@ public class Pacs008Validator : IIsoValidator
         {
             result.Errors.Add(new IsoValidationError
             {
-
+                Code = "MISSING_DEBTOR_ACCOUNT",
+                Message = "Debtor account is required",
+                Field = "DbtrAcct"
             });
         }
 

@@ -5,6 +5,8 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using System.Xml.Linq;
 
 public class WireController: Controller
 {
@@ -36,11 +38,17 @@ public class WireController: Controller
         var xml = $@"
         <Document>
             <TxId>{model.ClientReferenceId}</TxId>
-            <DbtrAcct>{model.DebtorAccountNumber}</DbtrAcct>
-            <IntrBkSttlmAmt>{model.Amount}</IntrBkSttlmAmt>
-            <Ccy>{model.CurrencyCode}</Ccy>
-        </Document>
-        ";
+
+            <DbtrAcct>
+                <Id>
+                    <Othr>
+                        <Id>{model.DebtorAccountNumber}</Id>
+                    </Othr>
+                </Id>
+            </DbtrAcct>
+
+            <IntrBkSttlmAmt Ccy=""{model.CurrencyCode}"">{model.Amount:F2}</IntrBkSttlmAmt>
+        </Document>";
 
         var body = Encoding.UTF8.GetBytes(xml);
 
