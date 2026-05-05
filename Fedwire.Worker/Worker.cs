@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using System.Text;
 using System.Threading.Channels;
 using System.Security;
+using System.Threading.Tasks;
 
 public class Worker : BackgroundService
 {
@@ -209,8 +210,10 @@ WHERE ClientReferenceId = @TxId", conn);
 
             await MarkRejected(conn, wireId, string.Join("; ", validation.Errors));
 
-            PublishResponse(
+            await PublishResponse(
+                conn,
                 _channel,
+                wireId,
                 msg.TxId,
                 "RJCT",
                 msg.Amount,
@@ -219,7 +222,6 @@ WHERE ClientReferenceId = @TxId", conn);
             );
         }
         var accountNumber = msg.AccountNumber;
-        Console.WriteLine($"Account Number: {accountNumber}");
         var balance = await GetAccountBalance(conn, accountNumber);
 
         if(balance == null)
@@ -228,8 +230,10 @@ WHERE ClientReferenceId = @TxId", conn);
 
             await MarkRejected(conn, wireId, "Account not found");
 
-            PublishResponse(
+            await PublishResponse(
+                conn,
                 _channel,
+                wireId,
                 msg.TxId,
                 "RJCT",
                 msg.Amount,
@@ -289,8 +293,10 @@ VALUES
 
         await MarkSettled(conn, wireId);
 
-        PublishResponse(
+        await PublishResponse(
+            conn,
             _channel!,
+            wireId,
             msg.TxId,
             status,
             msg.Amount,
@@ -300,8 +306,10 @@ VALUES
         _logger.LogInformation($"Processed wire {msg.TxId} → {status}");
     }
 
-    private void PublishResponse(
+    private async Task PublishResponse(
+        SqlConnection conn,
         IModel channel,
+        Guid wireTransactionId,
         string txId,
         string status,
         decimal amount,
@@ -335,6 +343,38 @@ VALUES
             </TxInfAndSts>
         </FIToFIPmtStsRpt>
     </Document>";
+        var insertIsoCmd = new SqlCommand(@"
+            INSERT INTO IsoMessages
+            (
+            IsoMessageId,
+            WireTransactionId,
+            MessageType,
+            Direction,
+            CorrelationId,
+            MessageXml, 
+            CreatedAt
+            )
+            VALUES
+            (
+            NEWID(),
+            @WireTransactionId,
+            'pacs.002',
+            'Outbound',
+            @CorrelationId,
+            @MessageXml,
+            SYSUTCDATETIME()
+            )", conn);
+
+        insertIsoCmd.Parameters.Add(@"WireTransactionId", System.Data.SqlDbType.UniqueIdentifier)
+            .Value = wireTransactionId;
+
+        insertIsoCmd.Parameters.Add(@"CorrelationId", System.Data.SqlDbType.NVarChar, 100)
+            .Value = correlationId;
+
+        insertIsoCmd.Parameters.Add(@"MessageXml", System.Data.SqlDbType.Xml)
+            .Value = responseXml;
+
+        await insertIsoCmd.ExecuteNonQueryAsync();
 
         var body = Encoding.UTF8.GetBytes(responseXml);
 
@@ -384,8 +424,6 @@ VALUES
             SELECT Balance
             FROM Accounts
             WHERE AccountNumber = @AccountNumber", conn);
-
-        Console.WriteLine($"Account Number: {accountNumber}");
 
         cmd.Parameters.AddWithValue("@AccountNumber", accountNumber);
 
