@@ -195,7 +195,7 @@ WHERE ClientReferenceId = @TxId", conn);
 
         var wireId = (Guid)await cmdGetId.ExecuteScalarAsync();
 
-        var validator = new Iso20022Validator();
+        var validator = new Pacs008Validator();
 
         var validation = validator.Validate(xml);
 
@@ -205,7 +205,7 @@ WHERE ClientReferenceId = @TxId", conn);
             _logger.LogWarning("ISO validation failed");
 
             foreach (var err in validation.Errors)
-                _logger.LogWarning(err);
+                _logger.LogWarning(err.Message);
 
             await MarkRejected(conn, wireId, string.Join("; ", validation.Errors));
 
