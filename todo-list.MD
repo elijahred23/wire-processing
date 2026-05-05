@@ -29,18 +29,6 @@ This is not random — this is **how real systems evolve**.
 
 ---
 
-# 🔴 PHASE 1 — COMPLETE CORE FLOW (finish what you started)
-
-## 1. Persist outbound pacs.002
-
-Use:
-
-* `IsoMessages`
-
-👉 Right now you send responses but don’t store them
-
----
-
 ## 2. Store validation errors
 
 Use:

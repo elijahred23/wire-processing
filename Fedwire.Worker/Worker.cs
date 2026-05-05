@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Channels;
 using System.Security;
 using System.Threading.Tasks;
+using System.Data;
 
 public class Worker : BackgroundService
 {
@@ -204,6 +205,8 @@ WHERE ClientReferenceId = @TxId", conn);
         {
             
             _logger.LogWarning("ISO validation failed");
+
+            await StoreValidationErrors(conn, wireId, validation.Errors);
 
             foreach (var err in validation.Errors)
                 _logger.LogWarning(err.Message);
@@ -468,5 +471,48 @@ VALUES
         cmd.Parameters.AddWithValue("@Id", wireId);
 
         await cmd.ExecuteNonQueryAsync();
+    }
+    private async Task StoreValidationErrors(
+        SqlConnection conn,
+        Guid wireTransactionId,
+        List<IsoValidationError> errors)
+    {
+        foreach (var error in errors)
+        {
+            var cmd = new SqlCommand(@"
+            INSERT INTO WireValidationErrors
+            (
+                ValidationErrorId,
+                WireTransactionId,
+                ErrorCode,
+                ErrorMessage,
+                FieldName,
+                CreatedAt
+            )
+            VALUES
+            (
+                NEWID(),
+                @WireTransactionId,
+                @ErrorCode,
+                @ErrorMessage,
+                @FieldName,
+                SYSUTCDATETIME()
+                )
+            ", conn);
+
+            cmd.Parameters.AddWithValue("@WireTransactionId", SqlDbType.UniqueIdentifier)
+                .Value = wireTransactionId;
+
+            cmd.Parameters.Add("@ErrorCode", System.Data.SqlDbType.NVarChar, 50)
+                .Value = error.Code;
+
+            cmd.Parameters.Add("@ErrorMessage", System.Data.SqlDbType.NVarChar, 500)
+                .Value = error.Message;
+
+            cmd.Parameters.Add("@FieldName", SqlDbType.NVarChar, 100)
+                .Value = (object?)error.Field ?? DBNull.Value;
+
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 }
